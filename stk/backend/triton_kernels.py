@@ -8,7 +8,8 @@ from dataclasses import dataclass
 class TritonConfig:
     # BLOCK_M: int = 128
     BLOCK_M: int = 32  # modified for llama-moe
-    BLOCK_N: int = 128
+    # BLOCK_N: int = 128
+    BLOCK_N: int = 64  # modified for llama-moe
     BLOCK_K: int = 32
     BLOCK_SIZE: int = 128
     NUM_STAGES: int = 4
