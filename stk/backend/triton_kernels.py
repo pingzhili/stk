@@ -3,20 +3,24 @@ import triton
 import triton.language as tl
 from dataclasses import dataclass
 
+
 @dataclass
 class TritonConfig:
-    BLOCK_M: int = 128
+    # BLOCK_M: int = 128
+    BLOCK_M: int = 32  # modified for llama-moe
     BLOCK_N: int = 128
     BLOCK_K: int = 32
     BLOCK_SIZE: int = 128
     NUM_STAGES: int = 4
     NUM_WARPS: int = 4
 
+
 def _validate_matmul_dims(M: int, K: int, N: int):
     error_string = "incompatible dimensions: tensor has dim with length: {}, which must be divisible by {}"
     assert M % TritonConfig.BLOCK_M == 0, error_string.format(M, TritonConfig.BLOCK_M)
     assert K % TritonConfig.BLOCK_K == 0, error_string.format(K, TritonConfig.BLOCK_K)
     assert N % TritonConfig.BLOCK_N == 0, error_string.format(N, TritonConfig.BLOCK_N)
+
 
 @triton.autotune(
     configs=[
@@ -32,13 +36,13 @@ def _validate_matmul_dims(M: int, K: int, N: int):
 )
 @triton.jit
 def _sdd_kernel(A, B, C, M, N, K,
-            stride_am, stride_ak,
-            stride_bk, stride_bn,
-            stride_cm, stride_cn,
-            row_indices, column_indices,
-            BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
-            BLOCK_SIZE: tl.constexpr, GROUP_M: tl.constexpr, ACC_TYPE: tl.constexpr,
-            ):
+                stride_am, stride_ak,
+                stride_bk, stride_bn,
+                stride_cm, stride_cn,
+                row_indices, column_indices,
+                BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
+                BLOCK_SIZE: tl.constexpr, GROUP_M: tl.constexpr, ACC_TYPE: tl.constexpr,
+                ):
     # matrix multiplication
     pid = tl.program_id(0)
     pid_m = tl.load(row_indices + pid)
@@ -59,13 +63,14 @@ def _sdd_kernel(A, B, C, M, N, K,
         acc += tl.dot(a, b)
         A += BLOCK_K * stride_ak
         B += BLOCK_K * stride_bk
-    #Store to sparse matrix
+    # Store to sparse matrix
     acc = acc.to(C.dtype.element_ty)
     BLOCK_ELEMENTS = BLOCK_SIZE * BLOCK_SIZE
     cm = tl.arange(0, BLOCK_M)
     cn = tl.arange(0, BLOCK_N)
     C = C + pid * BLOCK_ELEMENTS + (cm[:, None] * stride_cm + cn[None, :] * stride_cn)
     tl.store(C, acc, mask=True)
+
 
 @triton.autotune(
     configs=[
@@ -81,15 +86,14 @@ def _sdd_kernel(A, B, C, M, N, K,
 )
 @triton.jit
 def _dsd_kernel(A, B, C, M, N, K,
-            stride_am, stride_ak,
-            stride_bk, stride_bn,
-            stride_cm, stride_cn,
-            row_indices, column_indices, offsets,
-            block_offsets_t, trans_A: tl.constexpr, trans_B: tl.constexpr,
-            BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
-            BLOCK_SIZE: tl.constexpr, GROUP_M: tl.constexpr, ACC_TYPE: tl.constexpr,
-            ):
-
+                stride_am, stride_ak,
+                stride_bk, stride_bn,
+                stride_cm, stride_cn,
+                row_indices, column_indices, offsets,
+                block_offsets_t, trans_A: tl.constexpr, trans_B: tl.constexpr,
+                BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
+                BLOCK_SIZE: tl.constexpr, GROUP_M: tl.constexpr, ACC_TYPE: tl.constexpr,
+                ):
     # matrix multiplication
     pid_m = tl.program_id(0)
     pid_n = tl.program_id(1)
@@ -102,7 +106,7 @@ def _dsd_kernel(A, B, C, M, N, K,
     end_inx = tl.load(offsets + pid_m + 1)
 
     # pointers to sparse matrix
-    rm =  tl.arange(0, BLOCK_M)
+    rm = tl.arange(0, BLOCK_M)
     rak = tl.arange(0, BLOCK_K)
 
     A += (rm[:, None] * stride_am + rak[None, :] * stride_ak)
@@ -144,6 +148,7 @@ def _dsd_kernel(A, B, C, M, N, K,
     C = C + (cm[:, None] * stride_cm + cn[None, :] * stride_cn)
     tl.store(C, acc, mask=True)
 
+
 @triton.autotune(
     configs=[
         # basic configs for compute-bound matmuls
@@ -158,15 +163,14 @@ def _dsd_kernel(A, B, C, M, N, K,
 )
 @triton.jit
 def _dds_kernel(A, B, C, M, N, K,
-            stride_am, stride_ak,
-            stride_bk, stride_bn,
-            stride_cm, stride_cn,
-            row_indices, column_indices, offsets,
-            block_offsets_t, trans_A: tl.constexpr, trans_B: tl.constexpr,
-            BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
-            BLOCK_SIZE: tl.constexpr, GROUP_M: tl.constexpr, ACC_TYPE: tl.constexpr,
-            ):
-
+                stride_am, stride_ak,
+                stride_bk, stride_bn,
+                stride_cm, stride_cn,
+                row_indices, column_indices, offsets,
+                block_offsets_t, trans_A: tl.constexpr, trans_B: tl.constexpr,
+                BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
+                BLOCK_SIZE: tl.constexpr, GROUP_M: tl.constexpr, ACC_TYPE: tl.constexpr,
+                ):
     # matrix multiplication
     pid_m = tl.program_id(0)
     pid_n = tl.program_id(1)
@@ -179,7 +183,7 @@ def _dds_kernel(A, B, C, M, N, K,
     end_inx = tl.load(offsets + pid_n + 1)
 
     # pointers to dense matrix
-    rm =  pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     rak = tl.arange(0, BLOCK_K)
 
     A += (rm[:, None] * stride_am + rak[None, :] * stride_ak)
@@ -219,6 +223,7 @@ def _dds_kernel(A, B, C, M, N, K,
     C = C + (cm[:, None] * stride_cm + cn[None, :] * stride_cn)
     tl.store(C, acc, mask=True)
 
+
 def dsd(shape,
         data,
         offsets,
@@ -230,8 +235,7 @@ def dsd(shape,
         transpose_a,
         rhs,
         out
-    ):
-
+        ):
     device = rhs.device
     trans_A = transpose_a
     trans_B = False
@@ -251,7 +255,7 @@ def dsd(shape,
 
     stride_am, stride_ak = data.stride(1), data.stride(2)
     stride_bk, stride_bn = rhs.stride(0), rhs.stride(1)
-    a_column_indices  = column_indices
+    a_column_indices = column_indices
     a_offsets = offsets
 
     # launch kernel
@@ -275,6 +279,7 @@ def dsd(shape,
     )
     # return out
 
+
 def dds(lhs,
         shape,
         data,
@@ -286,8 +291,7 @@ def dds(lhs,
         block_offsets_t,
         transpose_b,
         out
-    ):
-
+        ):
     device = lhs.device
     trans_B = transpose_b
     trans_A = False
@@ -307,7 +311,7 @@ def dds(lhs,
 
     stride_am, stride_ak = lhs.stride(0), lhs.stride(1)
     stride_bk, stride_bn = data.stride(1), data.stride(2)
-    b_column_indices  = column_indices_t
+    b_column_indices = column_indices_t
     b_offsets = offsets_t
 
     # launch kernel
@@ -329,6 +333,7 @@ def dds(lhs,
         GROUP_M=128, ACC_TYPE=ACC_TYPE
     )
 
+
 def sdd(lhs,
         rhs,
         shape,
@@ -336,8 +341,7 @@ def sdd(lhs,
         offsets,
         row_indices,
         column_indices
-    ):
-
+        ):
     device = out.device
     trans_A = False
     trans_B = False
@@ -376,7 +380,8 @@ def sdd(lhs,
         out.stride(1), out.stride(2),
         row_indices, column_indices,
         GROUP_M=128, ACC_TYPE=ACC_TYPE
-        )
+    )
+
 
 @triton.jit
 def _row_indices_kernel(offsets, out):
@@ -386,8 +391,9 @@ def _row_indices_kernel(offsets, out):
     for nnz_block in range(nnz_blocks):
         tl.store(out + row_offset + nnz_block, pid)
 
+
 def row_indices(
-    shape, data, offsets, column_indices, out
+        shape, data, offsets, column_indices, out
 ):
     block_rows = len(offsets) - 1
-    _row_indices_kernel[(block_rows, )](offsets, out)
+    _row_indices_kernel[(block_rows,)](offsets, out)
