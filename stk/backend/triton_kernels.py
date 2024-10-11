@@ -11,7 +11,8 @@ class TritonConfig:
     # BLOCK_N: int = 128
     BLOCK_N: int = 64  # modified for llama-moe
     BLOCK_K: int = 32
-    BLOCK_SIZE: int = 128
+    # BLOCK_SIZE: int = 128
+    BLOCK_SIZE: int = 64  # modified for llama-moe
     NUM_STAGES: int = 4
     NUM_WARPS: int = 4
 
